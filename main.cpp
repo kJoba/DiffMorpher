@@ -16,7 +16,7 @@
 #include <QDir>
 #include "diff_match_patch.h"
 
-static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo patchFile, QFileInfo outFile, bool autoOption, bool forceOption, QString fill) {
+static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo patchFile, QFileInfo outFile, bool autoOption, bool forceOption, bool ignoreOption, QString fill) {
     //check files
     QFile sourceF(sourceFile.absoluteFilePath());
     QByteArray sourceData;
@@ -73,11 +73,14 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
         }
         else qDebug().noquote() << "nothing to do";
     }
+    else if (ignoreOption && sourceData == targetData) {
+        qDebug().noquote() << "no change - ignored";
+    }
     else {
         QByteArray outData;
         //check for binary files
-        if (sourceData.left(8000).contains((char) 0) || targetData.left(8000).contains((char) 0) || patchData.left(8000).contains((char) 0)) {
-            qDebug().noquote() << "binary detected, full target data copied";
+        if (sourceData.isEmpty() || sourceData.left(8000).contains((char) 0) || targetData.left(8000).contains((char) 0) || patchData.left(8000).contains((char) 0)) {
+            qDebug().noquote() << "binary or empty source detected, full target data copied";
             outData = targetData;
         }
         else {
@@ -106,24 +109,21 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
             }
             diff_match_patch dmp;
             QList<Patch> patches = dmp.patch_make(sourceContent, targetContent);
-            qDebug().noquote().nospace() << "diff: " << sourceContent.left(50) << "... --> " << targetContent.left(50) << "...";
+            qDebug().noquote().nospace() << "diff: " << sourceContent.left(50) << "...(" << sourceContent.length() << ") --> " << targetContent.left(50) << "...(" << targetContent.length() << ")";
             QStringList operations = {"DELETE", "INSERT", "EQUAL"};
-            int offset = 0;
             foreach( Patch patch, patches ) {
-                int targetIndex = patch.start1+offset;
-                qDebug().noquote().nospace() << "@" << patch.start1 << " (" << targetIndex << ") patch " << patch.length1 << "chars into " << patch.length2 << "chars";
+                int targetIndex = patch.start1;
+                qDebug().noquote().nospace() << "@" << patch.start1 << " patch " << patch.length1 << "chars into " << patch.length2 << "chars";
                 foreach( Diff diff, patch.diffs ) {
                     int count = diff.text.length();
                     switch (diff.operation) {
                         case DELETE:
                             patchContent.remove(targetIndex, count);
                             qDebug().noquote().nospace() << "deleted " << count << " chars @" << targetIndex;
-                            offset -= count;
                             break;
                         case INSERT:
                             patchContent.insert(targetIndex, diff.text);
-                            qDebug().noquote().nospace() << "inserted \"" << diff.text << "\" @" << targetIndex;
-                            offset += count;
+                            qDebug().noquote().nospace() << "inserted \"" << diff.text.left(50) << "...\"(" << count << ") @" << targetIndex;
                             targetIndex += count;
                             break;
                         case EQUAL:
@@ -134,7 +134,7 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
                 }
             }
             if (patchContent.length() != targetContent.length()) {
-                qDebug().noquote() << "somthing went wrong! length mismatch: target = " << targetContent.length() << " , out = " << patchContent.length();
+                qDebug().noquote() << "something went wrong! length mismatch: target = " << targetContent.length() << " , out = " << patchContent.length();
                 return 1;
             }
             outData = patchContent.toUtf8();
@@ -173,6 +173,8 @@ int main(int argc, char *argv[])
     parser.addOption(autoOption);
     const QCommandLineOption dirsOption(QStringList() << "d" << "dirs", "handle as directories (ignore hidden folders)");
     parser.addOption(dirsOption);
+    const QCommandLineOption ignoreOption(QStringList() << "i" << "ignore", "ignore unchanged files");
+    parser.addOption(ignoreOption);
     const QCommandLineOption fillOption("c", "character used for filling", "fillchar", " ");;
     parser.addOption(fillOption);
     const QCommandLineOption forceOption(QStringList() << "f" << "force", "Force patch file");
@@ -222,6 +224,7 @@ int main(int argc, char *argv[])
                     "      -a, --auto       auto delete/create files which are non existing on either side\n"
                     "      -c, --fillchar   character used for filling\n"
                     "      -d, --dirs       handle as directories (ignore hidden folders)\n"
+                    "      -i, --ignore     ignore unchanged files\n"
                     "      -f, --force      force patching different file length (truncate or pad with space)\n\n\n");
         //run program
         if (argumentsOk) {
@@ -240,10 +243,10 @@ int main(int argc, char *argv[])
                 foreach (QString file, files) {
                     qDebug().noquote() << "------------------";
                     qDebug().noquote() << file;
-                    if (handleFiles(QFileInfo(sourceFile.absoluteFilePath().append(file)), QFileInfo(targetFile.absoluteFilePath().append(file)), QFileInfo(patchFile.absoluteFilePath().append(file)), QFileInfo(outFile.absoluteFilePath().append(file)), parser.isSet(autoOption), parser.isSet(forceOption), parser.value(fillOption))) return 1;
+                    if (handleFiles(QFileInfo(sourceFile.absoluteFilePath().append(file)), QFileInfo(targetFile.absoluteFilePath().append(file)), QFileInfo(patchFile.absoluteFilePath().append(file)), QFileInfo(outFile.absoluteFilePath().append(file)), parser.isSet(autoOption), parser.isSet(forceOption), parser.isSet(ignoreOption), parser.value(fillOption))) return 1;
                 }
             }
-            else return handleFiles(sourceFile, targetFile, patchFile, outFile, parser.isSet(autoOption), parser.isSet(forceOption), parser.value(fillOption));
+            else return handleFiles(sourceFile, targetFile, patchFile, outFile, parser.isSet(autoOption), parser.isSet(forceOption), parser.isSet(ignoreOption), parser.value(fillOption));
         }
     }
     else {
