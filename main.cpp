@@ -19,23 +19,23 @@
 static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo patchFile, QFileInfo outFile, bool autoOption, bool forceOption) {
     //check files
     QFile sourceF(sourceFile.absoluteFilePath());
-    QString sourceContent;
+    QByteArray sourceData;
     if (sourceFile.isFile() && sourceFile.isReadable() && sourceF.open(QFile::ReadOnly)){
-        sourceContent = QString::fromUtf8(sourceF.readAll());
+        sourceData = sourceF.readAll();
         sourceF.close();
     }
     else {
-        if (autoOption) sourceContent.clear();
+        if (autoOption) sourceData.clear();
         else {
             qDebug().noquote() << sourceFile.absoluteFilePath() << " not readable, exiting...";
             return 1;
         }
     }
     QFile targetF(targetFile.absoluteFilePath());
-    QString targetContent;
+    QByteArray targetData;
     bool targetNotExists = false;
     if (targetFile.isFile() && targetFile.isReadable() && targetF.open(QFile::ReadOnly)) {
-        targetContent = QString::fromUtf8(targetF.readAll()); //support äöü
+        targetData = targetF.readAll();
         targetF.close();
     }
     else {
@@ -46,15 +46,16 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
         }
     }
     QFile patchF(patchFile.absoluteFilePath());
-    QString patchContent;
+    QByteArray patchData;
+    bool blank = false;
     if (patchFile.isFile() && patchFile.isReadable() && patchF.open(QFile::ReadOnly)) {
-        patchContent = QString::fromUtf8(patchF.readAll());
+        patchData = patchF.readAll();
         patchF.close();
     }
     else {
         if (autoOption) {
-            patchContent = sourceContent;
-            patchContent.replace(QRegularExpression("[^ \r\n]"), " ");
+            patchData = sourceData;
+            blank = true;
         }
         else {
             qDebug().noquote() << patchFile.absoluteFilePath() << " not readable, exiting...";
@@ -73,57 +74,70 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
         else qDebug().noquote() << "nothing to do";
     }
     else {
-        //verify file size of patch file
-        if (patchContent.length() != sourceContent.length()){
-            if (forceOption) {
-                if (patchContent.length() > sourceContent.length()) {
-                    int truncate = patchContent.length() - sourceContent.length();
-                    patchContent.truncate(sourceContent.length());
-                    qDebug().noquote() << "patch file truncated: " << truncate;
+        QByteArray outData;
+        //check for binary files
+        if (sourceData.left(8000).contains((char) 0) || targetData.left(8000).contains((char) 0) || patchData.left(8000).contains((char) 0)) {
+            qDebug().noquote() << "binary detected, full target data copied";
+            outData = targetData;
+        }
+        else {
+            QString sourceContent = QString::fromUtf8(sourceData),
+                    targetContent = QString::fromUtf8(targetData),
+                    patchContent = QString::fromUtf8(patchData);
+            if (blank) patchContent.replace(QRegularExpression("[^ \r\n]"), " ");
+            //verify file size of patch file
+            if (patchContent.length() != sourceContent.length()){
+                if (forceOption) {
+                    if (patchContent.length() > sourceContent.length()) {
+                        int truncate = patchContent.length() - sourceContent.length();
+                        patchContent.truncate(sourceContent.length());
+                        qDebug().noquote() << "patch file truncated: " << truncate;
+                    }
+                    else {
+                        int fill = sourceContent.length()-patchContent.length();
+                        patchContent.append(QString().fill(' ', fill));
+                        qDebug().noquote() << "patch file filled: " << fill;
+                    }
                 }
                 else {
-                    int fill = sourceContent.length()-patchContent.length();
-                    patchContent.append(QString().fill(' ', fill));
-                    qDebug().noquote() << "patch file filled: " << fill;
+                    qDebug().noquote() << "patch file size differs, force usage with -f, exiting...";
+                    return 1;
                 }
             }
-            else {
-                qDebug().noquote() << "patch file size differs, force usage with -f, exiting...";
+            diff_match_patch dmp;
+            QList<Patch> patches = dmp.patch_make(sourceContent, targetContent);
+            qDebug().noquote().nospace() << "diff: " << sourceContent.left(50) << "... --> " << targetContent.left(50) << "...";
+            QStringList operations = {"DELETE", "INSERT", "EQUAL"};
+            int offset = 0;
+            foreach( Patch patch, patches ) {
+                int targetIndex = patch.start1+offset;
+                qDebug().noquote().nospace() << "@" << patch.start1 << " (" << targetIndex << ") patch " << patch.length1 << "chars into " << patch.length2 << "chars";
+                foreach( Diff diff, patch.diffs ) {
+                    int count = diff.text.length();
+                    switch (diff.operation) {
+                        case DELETE:
+                            patchContent.remove(targetIndex, count);
+                            qDebug().noquote().nospace() << "deleted " << count << " chars @" << targetIndex;
+                            offset -= count;
+                            break;
+                        case INSERT:
+                            patchContent.insert(targetIndex, diff.text);
+                            qDebug().noquote().nospace() << "inserted \"" << diff.text << "\" @" << targetIndex;
+                            offset += count;
+                            targetIndex += count;
+                            break;
+                        case EQUAL:
+                            targetIndex += count;
+                            qDebug().noquote().nospace() << "skipped " << count << " chars";
+                            break;
+                    }
+                }
+            }
+            if (patchContent.length() != targetContent.length()) {
+                qDebug().noquote() << "somthing went wrong! length mismatch: target = " << targetContent.length() << " , out = " << patchContent.length();
                 return 1;
             }
-        }
-        diff_match_patch dmp;
-        QList<Patch> patches = dmp.patch_make(sourceContent, targetContent);
-        qDebug().noquote().nospace() << "diff: " << sourceContent.left(50) << "... --> " << targetContent.left(50) << "...";
-        QStringList operations = {"DELETE", "INSERT", "EQUAL"};
-        int offset = 0;
-        foreach( Patch patch, patches ) {
-            int targetIndex = patch.start1+offset;
-            qDebug().noquote().nospace() << "@" << patch.start1 << " (" << targetIndex << ") patch " << patch.length1 << "chars into " << patch.length2 << "chars";
-            foreach( Diff diff, patch.diffs ) {
-                int count = diff.text.length();
-                switch (diff.operation) {
-                    case DELETE:
-                        patchContent.remove(targetIndex, count);
-                        qDebug().noquote().nospace() << "deleted " << count << " chars @" << targetIndex;
-                        offset -= count;
-                        break;
-                    case INSERT:
-                        patchContent.insert(targetIndex, diff.text);
-                        qDebug().noquote().nospace() << "inserted \"" << diff.text << "\" @" << targetIndex;
-                        offset += count;
-                        targetIndex += count;
-                        break;
-                    case EQUAL:
-                        targetIndex += count;
-                        qDebug().noquote().nospace() << "skipped " << count << " chars";
-                        break;
-                }
-            }
-        }
-        if (patchContent.length() != targetContent.length()) {
-            qDebug().noquote() << "somthing went wrong! length mismatch: target = " << targetContent.length() << " , out = " << patchContent.length();
-            return 1;
+            outData = patchContent.toUtf8();
         }
         if (!QFileInfo(outFile.path()).isDir() && !QFileInfo(outFile.path()).exists()) {
             if (QDir().mkpath(outFile.path())) qDebug().noquote() << "failed to create dir: " << outFile.path();
@@ -134,7 +148,7 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
         }
         QFile outF(outFile.filePath());
         if (outF.open(QFile::WriteOnly)){
-            outF.write(patchContent.toUtf8());
+            outF.write(outData);
             outF.close();
         }
     }
