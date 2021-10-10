@@ -16,7 +16,7 @@
 #include <QDir>
 #include "diff_match_patch.h"
 
-static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo patchFile, QFileInfo outFile, bool autoOption, bool forceOption) {
+static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo patchFile, QFileInfo outFile, bool autoOption, bool forceOption, QString fill) {
     //check files
     QFile sourceF(sourceFile.absoluteFilePath());
     QByteArray sourceData;
@@ -84,7 +84,7 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
             QString sourceContent = QString::fromUtf8(sourceData),
                     targetContent = QString::fromUtf8(targetData),
                     patchContent = QString::fromUtf8(patchData);
-            if (blank) patchContent.replace(QRegularExpression("[^ \r\n]"), " ");
+            if (blank) patchContent.replace(QRegularExpression("[^\r\n]"), fill.left(1));
             //verify file size of patch file
             if (patchContent.length() != sourceContent.length()){
                 if (forceOption) {
@@ -94,9 +94,9 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
                         qDebug().noquote() << "patch file truncated: " << truncate;
                     }
                     else {
-                        int fill = sourceContent.length()-patchContent.length();
-                        patchContent.append(QString().fill(' ', fill));
-                        qDebug().noquote() << "patch file filled: " << fill;
+                        int fCount = sourceContent.length()-patchContent.length();
+                        patchContent.append(QString().fill(fill.at(0), fCount));
+                        qDebug().noquote() << "patch file filled: " << fCount;
                     }
                 }
                 else {
@@ -173,6 +173,8 @@ int main(int argc, char *argv[])
     parser.addOption(autoOption);
     const QCommandLineOption dirsOption(QStringList() << "d" << "dirs", "handle as directories (ignore hidden folders)");
     parser.addOption(dirsOption);
+    const QCommandLineOption fillOption("c", "character used for filling", "fillchar", " ");;
+    parser.addOption(fillOption);
     const QCommandLineOption forceOption(QStringList() << "f" << "force", "Force patch file");
     parser.addOption(forceOption);
     const QCommandLineOption helpOption = parser.addHelpOption();
@@ -208,7 +210,7 @@ int main(int argc, char *argv[])
         }
         //print version
         if (!argumentsOk || parser.isSet(helpOption) || parser.isSet(versionOption))
-            printf("DiffMorpher version %d\n", 1);
+            printf("DiffMorpher version 1.0\n\n");
         //print help
         if (!argumentsOk || parser.isSet(helpOption))
             printf("usage: diffmorpher\n"
@@ -218,6 +220,7 @@ int main(int argc, char *argv[])
                     "      -p, --patch      File to apply patches to\n"
                     "      -o, --out        Output file\n"
                     "      -a, --auto       auto delete/create files which are non existing on either side\n"
+                    "      -c, --fillchar   character used for filling\n"
                     "      -d, --dirs       handle as directories (ignore hidden folders)\n"
                     "      -f, --force      force patching different file length (truncate or pad with space)\n\n\n");
         //run program
@@ -237,10 +240,10 @@ int main(int argc, char *argv[])
                 foreach (QString file, files) {
                     qDebug().noquote() << "------------------";
                     qDebug().noquote() << file;
-                    if (handleFiles(QFileInfo(sourceFile.absoluteFilePath().append(file)), QFileInfo(targetFile.absoluteFilePath().append(file)), QFileInfo(patchFile.absoluteFilePath().append(file)), QFileInfo(outFile.absoluteFilePath().append(file)), parser.isSet(autoOption), parser.isSet(forceOption))) return 1;
+                    if (handleFiles(QFileInfo(sourceFile.absoluteFilePath().append(file)), QFileInfo(targetFile.absoluteFilePath().append(file)), QFileInfo(patchFile.absoluteFilePath().append(file)), QFileInfo(outFile.absoluteFilePath().append(file)), parser.isSet(autoOption), parser.isSet(forceOption), parser.value(fillOption))) return 1;
                 }
             }
-            else return handleFiles(sourceFile, targetFile, patchFile, outFile, parser.isSet(autoOption), parser.isSet(forceOption));
+            else return handleFiles(sourceFile, targetFile, patchFile, outFile, parser.isSet(autoOption), parser.isSet(forceOption), parser.value(fillOption));
         }
     }
     else {
