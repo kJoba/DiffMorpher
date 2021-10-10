@@ -1,0 +1,54 @@
+--- Libs/diff-match-patch/cpp/diff_match_patch.cpp	Jun  18 2018
++++ Libs/diff-match-patch/cpp/diff_match_patch.cpp	Sat Oct  9 09:06:06 2021
+@@ -1383,14 +1383,12 @@
+     // Each token begins with a one character parameter which specifies the
+     // operation of this token (delete, insert, equality).
+     QString param = safeMid(token, 1);
+-    switch (token[0].toAscii()) {
+-      case '+':
++    QChar token0 = token[0];
++    if (token0 == '+') {
+         param = QUrl::fromPercentEncoding(qPrintable(param));
+         diffs.append(Diff(INSERT, param));
+-        break;
+-      case '-':
+-        // Fall through.
+-      case '=': {
++    }
++    else if (token0 == '-' || token0 == '=') {
+         int n;
+         n = param.toInt();
+         if (n < 0) {
+@@ -1404,13 +1402,10 @@
+         } else {
+           diffs.append(Diff(DELETE, text));
+         }
+-        break;
+       }
+-      default:
+-        throw QString("Invalid diff operation in diff_fromDelta: %1")
++    else throw QString("Invalid diff operation in diff_fromDelta: %1")
+             .arg(token[0]);
+     }
+-  }
+   if (pointer != text1.length()) {
+     throw QString("Delta length (%1) smaller than source text length (%2)")
+         .arg(pointer).arg(text1.length());
+@@ -2038,7 +2033,7 @@
+   QStringList text = textline.split("\n", QString::SkipEmptyParts);
+   Patch patch;
+   QRegExp patchHeader("^@@ -(\\d+),?(\\d*) \\+(\\d+),?(\\d*) @@$");
+-  char sign;
++  QChar sign;
+   QString line;
+   while (!text.isEmpty()) {
+     if (!patchHeader.exactMatch(text.front())) {
+@@ -2074,7 +2069,7 @@
+         text.removeFirst();
+         continue;
+       }
+-      sign = text.front()[0].toAscii();
++      sign = text.front()[0];
+       line = safeMid(text.front(), 1);
+       line = line.replace("+", "%2B");  // decode would change all "+" to " "
+       line = QUrl::fromPercentEncoding(qPrintable(line));

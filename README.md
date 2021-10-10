@@ -3,6 +3,7 @@ DiffMorpher
 Commandline tool to use the Diff Match and Patch librarie to apply patches generated from two files/folders onto another file/folder
 
 In order to use with Qt5 and UTF8, it's recommended to change *char* to *QChar* in Diff Match and Patch library, thus getting rid of Qt4s deprecated .toAscii() method.
+You can accomplish this by using the diff_match_patch.cpp.patch file: patch -u Libs/diff-match-patch/cpp/diff_match_patch.cpp -i diff_match_patch.cpp.patch
 
 How to use
 ==========
