@@ -139,17 +139,21 @@ static int handleFiles(QFileInfo sourceFile, QFileInfo targetFile, QFileInfo pat
             }
             outData = patchContent.toUtf8();
         }
-        if (!QFileInfo(outFile.path()).isDir() && !QFileInfo(outFile.path()).exists()) {
-            if (QDir().mkpath(outFile.path())) qDebug().noquote() << "failed to create dir: " << outFile.path();
+        if (!QFileInfo(outFile.absoluteFilePath()).absoluteDir().exists()) {
+            if (QDir().mkpath(QFileInfo(outFile.absoluteFilePath()).absoluteDir().absolutePath())) qDebug().noquote() << "dir created: " << QFileInfo(outFile.absoluteFilePath()).absoluteDir().absolutePath();
             else {
-                qDebug().noquote() << "failed to create dir: " << outFile.path();
+                qDebug().noquote() << "failed to create dir: " << QFileInfo(outFile.absoluteFilePath()).absoluteDir().absolutePath();
                 return 1;
             }
         }
-        QFile outF(outFile.filePath());
+        QFile outF(outFile.absoluteFilePath());
         if (outF.open(QFile::WriteOnly)){
             outF.write(outData);
             outF.close();
+        }
+        else {
+            qDebug().noquote() << "failed to write to file: " << outFile.absoluteFilePath();
+            return 1;
         }
     }
     return 0;
